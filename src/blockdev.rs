@@ -33,6 +33,7 @@ use std::process::Command;
 use std::thread::sleep;
 use std::time::Duration;
 
+use crate::cmdline::PartitionFilter;
 use crate::errors::*;
 
 #[derive(Debug)]
@@ -484,17 +485,16 @@ pub struct SavedPartitions {
 }
 
 impl SavedPartitions {
-    pub fn empty() -> Self {
-        Self {
-            partitions: Vec::new(),
-        }
-    }
-
-    pub fn new<P: AsRef<Path>>(disk: P) -> Result<Self> {
+    pub fn new<P: AsRef<Path>>(disk: P, filters: &[PartitionFilter]) -> Result<Self> {
         let disk = disk.as_ref();
         let mut result = Self {
             partitions: Vec::new(),
         };
+
+        // skip reading partition table if we don't have an accept filter
+        if filters.is_empty() {
+            return Ok(result);
+        }
 
         let mut f = OpenOptions::new()
             .read(true)
@@ -506,14 +506,32 @@ impl SavedPartitions {
         };
 
         for (i, p) in gpt.iter() {
-            if p.is_used() && i > 4 {
+            if Self::matches_filters(i, p, filters) {
                 result.partitions.push((i, p.clone()));
             }
         }
         Ok(result)
     }
 
+    fn matches_filters(i: u32, p: &GPTPartitionEntry, filters: &[PartitionFilter]) -> bool {
+        use PartitionFilter::*;
+        if !p.is_used() {
+            return false;
+        }
+        filters.iter().any(|f| match f {
+            Index(Some(first), _) if first.get() > i => false,
+            Index(_, Some(last)) if last.get() < i => false,
+            Index(_, _) => true,
+            Label(glob) if glob.matches(p.partition_name.as_str()) => true,
+            _ => false,
+        })
+    }
+
     pub fn write<P: AsRef<Path>>(self, disk: P) -> Result<()> {
+        if self.partitions.is_empty() {
+            return Ok(());
+        }
+
         let disk = disk.as_ref();
         let mut f = OpenOptions::new()
             .read(true)
@@ -522,9 +540,21 @@ impl SavedPartitions {
         let mut gpt = GPT::find_from(&mut f)
             .chain_err(|| format!("reading GPT partitions on {}", disk.display()))?;
 
+        // merge saved partitions into partition table
+        // find partition number one larger than the largest used one
+        let mut next = gpt
+            .iter()
+            .fold(1, |prev, (i, e)| if e.is_used() { i + 1 } else { prev });
         for (i, p) in self.partitions {
-            println!("Adding {} into slot {}", p.partition_name, i);
-            gpt[i] = p;
+            // use the next partition number in the sequence if we have to,
+            // or the partition's original number if it's larger
+            next = next.max(i);
+            eprintln!(
+                "Saving partition {} (\"{}\") to new partition {}",
+                i, p.partition_name, next
+            );
+            gpt[next] = p;
+            next += 1;
         }
 
         let mut f = OpenOptions::new()
@@ -806,6 +836,8 @@ mod tests {
 
     #[test]
     fn test_saved_partitions() {
+        use PartitionFilter::*;
+
         let make_part = |i: u32, name: &str, start: u64, end: u64| {
             (
                 i,
@@ -828,30 +860,80 @@ mod tests {
             make_part(5, "five", 4096, 5120),
             make_part(7, "seven", 5120, 6144),
             make_part(8, "eight", 6144, 7168),
+            make_part(9, "nine", 7168, 8192),
         ];
         let image_parts = vec![
             make_part(1, "boot", 1, 384),
             make_part(2, "EFI-SYSTEM", 384, 512),
-            make_part(4, "root", 1024, 3200),
+            make_part(4, "root", 1024, 2200),
         ];
 
-        let tests = vec![vec![
-            make_part(1, "boot", 1, 384),
-            make_part(2, "EFI-SYSTEM", 384, 512),
-            make_part(4, "root", 1024, 3200),
-            make_part(5, "five", 4096, 5120),
-            make_part(7, "seven", 5120, 6144),
-            make_part(8, "eight", 6144, 7168),
-        ]];
+        let index = |i| Some(NonZeroU32::new(i).unwrap());
+        let label = |l| Label(glob::Pattern::new(l).unwrap());
+        let tests = vec![
+            // Partition range
+            (
+                vec![Index(index(5), None)],
+                vec![
+                    make_part(1, "boot", 1, 384),
+                    make_part(2, "EFI-SYSTEM", 384, 512),
+                    make_part(4, "root", 1024, 2200),
+                    make_part(5, "five", 4096, 5120),
+                    make_part(7, "seven", 5120, 6144),
+                    make_part(8, "eight", 6144, 7168),
+                    make_part(9, "nine", 7168, 8192),
+                ],
+            ),
+            // Glob
+            (
+                vec![label("*i*")],
+                vec![
+                    make_part(1, "boot", 1, 384),
+                    make_part(2, "EFI-SYSTEM", 384, 512),
+                    make_part(4, "root", 1024, 2200),
+                    make_part(5, "five", 4096, 5120),
+                    make_part(8, "eight", 6144, 7168),
+                    make_part(9, "nine", 7168, 8192),
+                ],
+            ),
+            // Missing label, single partition, irrelevant range
+            (
+                vec![
+                    label("six"),
+                    Index(index(7), index(7)),
+                    Index(index(11), None),
+                ],
+                vec![
+                    make_part(1, "boot", 1, 384),
+                    make_part(2, "EFI-SYSTEM", 384, 512),
+                    make_part(4, "root", 1024, 2200),
+                    make_part(7, "seven", 5120, 6144),
+                ],
+            ),
+            // Partition renumbering
+            (
+                vec![Index(index(4), None)],
+                vec![
+                    make_part(1, "boot", 1, 384),
+                    make_part(2, "EFI-SYSTEM", 384, 512),
+                    make_part(4, "root", 1024, 2200),
+                    make_part(5, "four", 3072, 4096),
+                    make_part(6, "five", 4096, 5120),
+                    make_part(7, "seven", 5120, 6144),
+                    make_part(8, "eight", 6144, 7168),
+                    make_part(9, "nine", 7168, 8192),
+                ],
+            ),
+        ];
 
         let base = make_disk(&base_parts);
-        for (testnum, test) in tests.iter().enumerate() {
-            let saved = SavedPartitions::new(base.path()).unwrap();
+        for (testnum, (filter, expected)) in tests.iter().enumerate() {
+            let saved = SavedPartitions::new(base.path(), filter).unwrap();
             let mut disk = make_disk(&image_parts);
             saved.write(disk.path()).unwrap();
 
             let result = GPT::find_from(&mut disk).unwrap();
-            assert_partitions_eq(test, &result, &format!("test {}", testnum));
+            assert_partitions_eq(expected, &result, &format!("test {}", testnum));
         }
     }
 

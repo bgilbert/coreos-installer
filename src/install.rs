@@ -68,7 +68,7 @@ pub fn install(config: &InstallConfig) -> Result<()> {
         .chain_err(|| format!("checking for exclusive access to {}", &config.device))?;
 
     // save partitions that we plan to keep
-    let mut saved = SavedPartitions::new(&config.device)?;
+    let saved = SavedPartitions::new(&config.device, &config.save_partitions)?;
 
     // get reference to partition table
     // For kpartx partitioning, this will conditionally call kpartx -d
@@ -76,12 +76,6 @@ pub fn install(config: &InstallConfig) -> Result<()> {
     let mut table = Disk::new(&config.device)
         .get_partition_table()
         .chain_err(|| format!("getting partition table for {}", &config.device))?;
-
-    if config.wipedisk {
-        println!("Erasing partition table\n");
-        clear_partition_table(&mut dest, &mut *table)?;
-        saved = SavedPartitions::empty();
-    }
 
     // copy and postprocess disk image
     // On failure, clear and reread the partition table to prevent the disk
