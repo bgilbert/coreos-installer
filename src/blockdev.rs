@@ -32,6 +32,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::thread::sleep;
 use std::time::Duration;
+use uuid::Uuid;
 
 use crate::cmdline::PartitionFilter;
 use crate::errors::*;
@@ -537,13 +538,30 @@ impl SavedPartitions {
             return Ok(());
         }
 
+        // get or create GPT
         let disk = disk.as_ref();
         let mut f = OpenOptions::new()
             .read(true)
             .open(disk)
             .chain_err(|| format!("opening {} for reading", disk.display()))?;
-        let mut gpt = GPT::find_from(&mut f)
-            .chain_err(|| format!("reading GPT partitions on {}", disk.display()))?;
+        let mut gpt = match GPT::find_from(&mut f) {
+            Ok(gpt) => gpt,
+            Err(e) => {
+                // Bad or missing GPT.  Maybe the caller just deleted it.
+                // Create a new partition table and save to that, otherwise
+                // we risk data loss.  If the error is anything fancier than
+                // a missing table, warn about it.
+                match e {
+                    gptman::Error::InvalidSignature => (),
+                    _ => {
+                        eprintln!("Couldn't read partition table: {}.  Recreating.", e);
+                    }
+                }
+                let sector_size = get_sector_size(&f)?.get() as u64;
+                GPT::new_from(&mut f, sector_size, *Uuid::new_v4().as_bytes())
+                    .chain_err(|| format!("creating new partition table for {}", disk.display()))?
+            }
+        };
 
         // merge saved partitions into partition table
         // find partition number one larger than the largest used one
@@ -562,6 +580,7 @@ impl SavedPartitions {
             next += 1;
         }
 
+        // write
         let mut f = OpenOptions::new()
             .write(true)
             .open(disk)
