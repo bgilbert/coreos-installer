@@ -517,7 +517,7 @@ impl SavedPartitions {
         })
     }
 
-    pub fn write<P: AsRef<Path>>(self, disk: P) -> Result<()> {
+    pub fn write<P: AsRef<Path>>(&self, disk: P) -> Result<()> {
         if self.partitions.is_empty() {
             return Ok(());
         }
@@ -552,15 +552,15 @@ impl SavedPartitions {
         let mut next = gpt
             .iter()
             .fold(1, |prev, (i, e)| if e.is_used() { i + 1 } else { prev });
-        for (i, p) in self.partitions {
+        for (i, p) in &self.partitions {
             // use the next partition number in the sequence if we have to,
             // or the partition's original number if it's larger
-            next = next.max(i);
+            next = next.max(*i);
             eprintln!(
                 "Saving partition {} (\"{}\") to new partition {}",
                 i, p.partition_name, next
             );
-            gpt[next] = p;
+            gpt[next] = p.clone();
             next += 1;
         }
 
