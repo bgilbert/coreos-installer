@@ -946,7 +946,7 @@ mod tests {
                 i,
                 GPTPartitionEntry {
                     partition_type_guid: make_guid("type"),
-                    unique_parition_guid: make_guid(name),
+                    unique_parition_guid: make_guid(&start.to_string()),
                     starting_lba: start * 2048,
                     ending_lba: end * 2048 - 1,
                     attribute_bits: 0,
@@ -964,6 +964,8 @@ mod tests {
             make_part(7, "seven", 5120, 6144),
             make_part(8, "eight", 6144, 7168),
             make_part(9, "nine", 7168, 8192),
+            make_part(10, "", 8192, 8193),
+            make_part(11, "", 8193, 8194),
         ];
         let image_parts = vec![
             make_part(1, "boot", 1, 384),
@@ -982,6 +984,8 @@ mod tests {
                     make_part(7, "seven", 5120, 6144),
                     make_part(8, "eight", 6144, 7168),
                     make_part(9, "nine", 7168, 8192),
+                    make_part(10, "", 8192, 8193),
+                    make_part(11, "", 8193, 8194),
                 ],
                 vec![
                     make_part(1, "boot", 1, 384),
@@ -991,6 +995,8 @@ mod tests {
                     make_part(7, "seven", 5120, 6144),
                     make_part(8, "eight", 6144, 7168),
                     make_part(9, "nine", 7168, 8192),
+                    make_part(10, "", 8192, 8193),
+                    make_part(11, "", 8193, 8194),
                 ],
             ),
             // Glob
@@ -1015,7 +1021,7 @@ mod tests {
                 vec![
                     label("six"),
                     Index(index(7), index(7)),
-                    Index(index(11), None),
+                    Index(index(15), None),
                 ],
                 vec![make_part(7, "seven", 5120, 6144)],
                 vec![
@@ -1023,6 +1029,18 @@ mod tests {
                     make_part(2, "EFI-SYSTEM", 384, 512),
                     make_part(4, "root", 1024, 2200),
                     make_part(7, "seven", 5120, 6144),
+                ],
+            ),
+            // Empty label match, multiple results
+            (
+                vec![label("")],
+                vec![make_part(10, "", 8192, 8193), make_part(11, "", 8193, 8194)],
+                vec![
+                    make_part(1, "boot", 1, 384),
+                    make_part(2, "EFI-SYSTEM", 384, 512),
+                    make_part(4, "root", 1024, 2200),
+                    make_part(10, "", 8192, 8193),
+                    make_part(11, "", 8193, 8194),
                 ],
             ),
             // Partition renumbering
@@ -1034,6 +1052,8 @@ mod tests {
                     make_part(7, "seven", 5120, 6144),
                     make_part(8, "eight", 6144, 7168),
                     make_part(9, "nine", 7168, 8192),
+                    make_part(10, "", 8192, 8193),
+                    make_part(11, "", 8193, 8194),
                 ],
                 vec![
                     make_part(1, "boot", 1, 384),
@@ -1044,6 +1064,8 @@ mod tests {
                     make_part(7, "seven", 5120, 6144),
                     make_part(8, "eight", 6144, 7168),
                     make_part(9, "nine", 7168, 8192),
+                    make_part(10, "", 8192, 8193),
+                    make_part(11, "", 8193, 8194),
                 ],
             ),
             // No saved partitions
