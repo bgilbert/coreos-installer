@@ -1029,11 +1029,11 @@ mod tests {
             ),
         ];
 
-        let base = make_disk(&base_parts);
+        let base = make_disk(512, &base_parts);
         for (testnum, (filter, expected_image, expected_blank)) in tests.iter().enumerate() {
             // try writing to image disk
             let saved = SavedPartitions::new(base.path(), filter).unwrap();
-            let mut disk = make_disk(&image_parts);
+            let mut disk = make_disk(512, &image_parts);
             saved.write(disk.path()).unwrap();
             let result = GPT::find_from(&mut disk).unwrap();
             assert_partitions_eq(expected_image, &result, &format!("test {} image", testnum));
@@ -1050,16 +1050,27 @@ mod tests {
                 assert_partitions_eq(expected_blank, &result, &format!("test {} blank", testnum));
             }
         }
+
+        // test sector size mismatch
+        let saved = SavedPartitions::new(base.path(), &vec![label("*i*")]).unwrap();
+        let disk = make_disk(4096, &image_parts);
+        assert_eq!(
+            saved.write(disk.path()).unwrap_err().to_string(),
+            format!(
+                "sector size 4096 of GPT on {} doesn't match sector size 512 of saved GPT",
+                disk.path().display()
+            )
+        );
     }
 
-    fn make_disk(partitions: &Vec<(u32, GPTPartitionEntry)>) -> NamedTempFile {
+    fn make_disk(sector_size: u64, partitions: &Vec<(u32, GPTPartitionEntry)>) -> NamedTempFile {
         let mut disk = Builder::new()
             .prefix("coreos-installer-blockdev-")
             .tempfile()
             .unwrap();
         disk.as_file().set_len(10 * 1024 * 1024 * 1024).unwrap();
 
-        let mut gpt = GPT::new_from(&mut disk, 512, make_guid("disk")).unwrap();
+        let mut gpt = GPT::new_from(&mut disk, sector_size, make_guid("disk")).unwrap();
         for (partnum, entry) in partitions {
             gpt[*partnum] = entry.clone();
         }
