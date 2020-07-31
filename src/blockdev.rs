@@ -496,23 +496,7 @@ impl SavedPartitions {
                     .chain_err(|| format!("reading partition table of {}", disk.display()))?
             }
         };
-        // true except in unit tests
-        if f.metadata()
-            .chain_err(|| format!("getting metadata for {}", disk.display()))?
-            .file_type()
-            .is_block_device()
-        {
-            let disk_sector_size = get_sector_size(&f)?.get() as u64;
-            if disk_sector_size != gpt.sector_size {
-                // give up before doing any damage
-                bail!(
-                    "sector size {} of disk {} doesn't match sector size {} of GPT",
-                    disk_sector_size,
-                    disk.display(),
-                    gpt.sector_size
-                );
-            }
-        }
+        Self::verify_disk_sector_size_matches_gpt(disk, &f, gpt.sector_size)?;
         result.sector_size = Some(gpt.sector_size);
 
         for (i, p) in gpt.iter() {
@@ -521,6 +505,32 @@ impl SavedPartitions {
             }
         }
         Ok(result)
+    }
+
+    fn verify_disk_sector_size_matches_gpt(
+        disk: &Path,
+        file: &File,
+        sector_size: u64,
+    ) -> Result<()> {
+        if !file
+            .metadata()
+            .chain_err(|| format!("getting metadata for {}", disk.display()))?
+            .file_type()
+            .is_block_device()
+        {
+            // we're running in a unit test
+            return Ok(());
+        }
+        let disk_sector_size = get_sector_size(&file)?.get() as u64;
+        if disk_sector_size != sector_size {
+            bail!(
+                "sector size {} of disk {} doesn't match sector size {} of GPT",
+                disk_sector_size,
+                disk.display(),
+                sector_size
+            );
+        }
+        Ok(())
     }
 
     fn matches_filters(i: u32, p: &GPTPartitionEntry, filters: &[PartitionFilter]) -> bool {
@@ -551,22 +561,7 @@ impl SavedPartitions {
             .read(true)
             .open(disk)
             .chain_err(|| format!("opening {} for reading", disk.display()))?;
-        // true except in unit tests
-        if f.metadata()
-            .chain_err(|| format!("getting metadata for {}", disk.display()))?
-            .file_type()
-            .is_block_device()
-        {
-            let disk_sector_size = get_sector_size(&f)?.get() as u64;
-            if disk_sector_size != sector_size {
-                bail!(
-                    "sector size {} of disk {} doesn't match sector size {} of saved GPT",
-                    disk_sector_size,
-                    disk.display(),
-                    sector_size
-                );
-            }
-        }
+        Self::verify_disk_sector_size_matches_gpt(disk, &f, sector_size)?;
         let mut gpt = match GPT::find_from(&mut f) {
             Ok(gpt) => gpt,
             Err(e) => {
