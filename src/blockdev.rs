@@ -193,22 +193,6 @@ impl Disk {
     fn is_dm_device(&self) -> bool {
         self.path.starts_with("/dev/mapper/") || self.path.starts_with("/dev/dm-")
     }
-
-    pub fn update_gpt_headers(self) -> Result<()> {
-        let mut f = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(&self.path)
-            .chain_err(|| format!("opening {} for reading and writing", self.path))?;
-        let mut gpt = GPT::find_from(&mut f)
-            .chain_err(|| format!("reading GPT partitions on {}", self.path))?;
-        gpt.header
-            .update_from(&mut f, gpt.sector_size)
-            .chain_err(|| format!("updating GPT partitions for {}", self.path))?;
-        gpt.write_into(&mut f)
-            .chain_err(|| format!("writing updated GPT to {}", self.path))?;
-        Ok(())
-    }
 }
 
 /// A handle to the set of device nodes for individual partitions of a

@@ -100,9 +100,6 @@ pub fn install(config: &InstallConfig) -> Result<()> {
         bail!("install failed");
     }
 
-    // Make sure end_lba and partition table is consistent
-    Disk::new(&config.device).update_gpt_headers()?;
-
     saved
         .write(&config.device)
         .chain_err(|| "restoring additional partitions")?;
