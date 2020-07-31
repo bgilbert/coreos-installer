@@ -658,6 +658,10 @@ impl SavedPartitions {
             ))),
         }
     }
+
+    pub fn is_saved(&self) -> bool {
+        !self.partitions.is_empty()
+    }
 }
 
 fn read_sysfs_dev_block_value_u64(maj: u64, min: u64, field: &str) -> Result<u64> {

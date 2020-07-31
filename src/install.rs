@@ -95,6 +95,32 @@ pub fn install(config: &InstallConfig) -> Result<()> {
         // clean up
         if config.preserve_on_error {
             eprintln!("Preserving partition table as requested");
+            if saved.is_saved() {
+                // The user asked to preserve the damaged partition table
+                // for debugging.  We also have saved partitions, and those
+                // may or may not be in the damaged table depending where we
+                // failed.  Preserve the saved partitions by writing them to
+                // a file in /tmp and telling the user about it.  Hey, it's
+                // a debug flag.
+                let stash = tempfile::Builder::new()
+                    .prefix("coreos-installer-partitions.")
+                    .tempfile()
+                    .chain_err(|| "creating partition stash file")?;
+                eprintln!(
+                    "Storing saved partition entries to {}",
+                    stash.path().display()
+                );
+                stash
+                    .as_file()
+                    .set_len(1024 * 1024)
+                    .chain_err(|| "extending partition stash file")?;
+                saved
+                    .write(stash.path())
+                    .chain_err(|| "stashing saved partitions")?;
+                stash
+                    .keep()
+                    .chain_err(|| "retaining saved partition stash")?;
+            }
         } else {
             clear_partition_table(&mut dest, &mut *table)?;
             saved
