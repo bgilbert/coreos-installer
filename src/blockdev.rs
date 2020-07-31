@@ -466,6 +466,7 @@ impl Mount {
 
 #[derive(Debug)]
 pub struct SavedPartitions {
+    sector_size: Option<u64>,
     partitions: Vec<(u32, GPTPartitionEntry)>,
 }
 
@@ -473,6 +474,7 @@ impl SavedPartitions {
     pub fn new<P: AsRef<Path>>(disk: P, filters: &[PartitionFilter]) -> Result<Self> {
         let disk = disk.as_ref();
         let mut result = Self {
+            sector_size: None,
             partitions: Vec::new(),
         };
 
@@ -494,6 +496,24 @@ impl SavedPartitions {
                     .chain_err(|| format!("reading partition table of {}", disk.display()))?
             }
         };
+        // true except in unit tests
+        if f.metadata()
+            .chain_err(|| format!("getting metadata for {}", disk.display()))?
+            .file_type()
+            .is_block_device()
+        {
+            let disk_sector_size = get_sector_size(&f)?.get() as u64;
+            if disk_sector_size != gpt.sector_size {
+                // give up before doing any damage
+                bail!(
+                    "sector size {} of disk {} doesn't match sector size {} of GPT",
+                    disk_sector_size,
+                    disk.display(),
+                    gpt.sector_size
+                );
+            }
+        }
+        result.sector_size = Some(gpt.sector_size);
 
         for (i, p) in gpt.iter() {
             if Self::matches_filters(i, p, filters) {
@@ -528,6 +548,22 @@ impl SavedPartitions {
             .read(true)
             .open(disk)
             .chain_err(|| format!("opening {} for reading", disk.display()))?;
+        // true except in unit tests
+        if f.metadata()
+            .chain_err(|| format!("getting metadata for {}", disk.display()))?
+            .file_type()
+            .is_block_device()
+        {
+            let disk_sector_size = get_sector_size(&f)?.get() as u64;
+            if disk_sector_size != self.sector_size.expect("sector size unset") {
+                bail!(
+                    "sector size {} of disk {} doesn't match sector size {} of saved GPT",
+                    disk_sector_size,
+                    disk.display(),
+                    self.sector_size.unwrap()
+                );
+            }
+        }
         let mut gpt = match GPT::find_from(&mut f) {
             Ok(gpt) => gpt,
             Err(e) => {
@@ -541,11 +577,24 @@ impl SavedPartitions {
                         eprintln!("Couldn't read partition table: {}.  Recreating.", e);
                     }
                 }
-                let sector_size = get_sector_size(&f)?.get() as u64;
-                GPT::new_from(&mut f, sector_size, *Uuid::new_v4().as_bytes())
-                    .chain_err(|| format!("creating new partition table for {}", disk.display()))?
+                GPT::new_from(
+                    &mut f,
+                    self.sector_size.expect("sector size unset"),
+                    *Uuid::new_v4().as_bytes(),
+                )
+                .chain_err(|| format!("creating new partition table for {}", disk.display()))?
             }
         };
+        if gpt.sector_size != self.sector_size.expect("sector size unset") {
+            // install will fail on an image that doesn't match the disk,
+            // so this shouldn't happen
+            bail!(
+                "sector size {} of GPT on {} doesn't match sector size {} of saved GPT",
+                gpt.sector_size,
+                disk.display(),
+                self.sector_size.unwrap()
+            );
+        }
 
         // merge saved partitions into partition table
         // find partition number one larger than the largest used one
