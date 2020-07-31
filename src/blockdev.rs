@@ -1090,17 +1090,21 @@ mod tests {
             );
 
             // try writing to blank disk
-            let mut disk = Builder::new()
-                .prefix("coreos-installer-blockdev-")
-                .tempfile()
-                .unwrap();
-            disk.as_file().set_len(10 * 1024 * 1024 * 1024).unwrap();
+            let mut disk = make_unformatted_disk();
             saved.write(disk.path()).unwrap();
             if !expected_blank.is_empty() {
                 let result = GPT::find_from(&mut disk).unwrap();
                 assert_partitions_eq(expected_blank, &result, &format!("test {} blank", testnum));
             }
         }
+
+        // test unformatted initial disk
+        let disk = make_unformatted_disk();
+        let saved = SavedPartitions::new(disk.path(), &vec![label("z")]).unwrap();
+        let mut disk = make_disk(512, &image_parts);
+        saved.write(disk.path()).unwrap();
+        let result = GPT::find_from(&mut disk).unwrap();
+        assert_partitions_eq(&image_parts, &result, "unformatted disk");
 
         // test overlapping partitions
         let saved = SavedPartitions::new(base.path(), &vec![Index(index(1), index(1))]).unwrap();
@@ -1123,17 +1127,21 @@ mod tests {
     }
 
     fn make_disk(sector_size: u64, partitions: &Vec<(u32, GPTPartitionEntry)>) -> NamedTempFile {
-        let mut disk = Builder::new()
-            .prefix("coreos-installer-blockdev-")
-            .tempfile()
-            .unwrap();
-        disk.as_file().set_len(10 * 1024 * 1024 * 1024).unwrap();
-
+        let mut disk = make_unformatted_disk();
         let mut gpt = GPT::new_from(&mut disk, sector_size, make_guid("disk")).unwrap();
         for (partnum, entry) in partitions {
             gpt[*partnum] = entry.clone();
         }
         gpt.write_into(&mut disk).unwrap();
+        disk
+    }
+
+    fn make_unformatted_disk() -> NamedTempFile {
+        let disk = Builder::new()
+            .prefix("coreos-installer-blockdev-")
+            .tempfile()
+            .unwrap();
+        disk.as_file().set_len(10 * 1024 * 1024 * 1024).unwrap();
         disk
     }
 
