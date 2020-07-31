@@ -47,6 +47,12 @@ pub fn install(config: &InstallConfig) -> Result<()> {
     #[cfg(target_arch = "s390x")]
     {
         if is_dasd(config)? {
+            if !config.save_partitions.is_empty() {
+                // The user requested partition saving, but SavedPartitions
+                // doesn't understand DASD VTOCs and won't find any partitions
+                // to save.
+                bail!("saving DASD partitions is not supported");
+            }
             s390x::prepare_dasd(&config)?;
         }
     }
