@@ -596,6 +596,28 @@ impl SavedPartitions {
             );
         }
 
+        // Fail if the last on-disk partition overlaps with the beginning of
+        // the first saved partition.  Ignore holes.  This test is distinct
+        // from the download-time LimitReader checking, because the image
+        // may claim to have partitions beyond the end of the image file.
+        // If this occurs, install() will restore the saved partitions after
+        // clearing the table.
+        if let Some((i_end, end)) = gpt.iter().max_by_key(|(_, p)| p.ending_lba) {
+            if let Some((i_start, start)) =
+                self.partitions.iter().min_by_key(|(_, p)| p.starting_lba)
+            {
+                if end.ending_lba >= start.starting_lba {
+                    bail!(
+                        "disk partition {} ('{}') ends after start of saved partition {} ('{}')",
+                        i_end,
+                        end.partition_name.as_str(),
+                        i_start,
+                        start.partition_name.as_str()
+                    )
+                }
+            }
+        }
+
         // merge saved partitions into partition table
         // find partition number one larger than the largest used one
         let mut next = gpt
@@ -1079,6 +1101,14 @@ mod tests {
                 assert_partitions_eq(expected_blank, &result, &format!("test {} blank", testnum));
             }
         }
+
+        // test overlapping partitions
+        let saved = SavedPartitions::new(base.path(), &vec![Index(index(1), index(1))]).unwrap();
+        let disk = make_disk(512, &image_parts);
+        assert_eq!(
+            saved.write(disk.path()).unwrap_err().to_string(),
+            "disk partition 4 ('root') ends after start of saved partition 1 ('one')",
+        );
 
         // test sector size mismatch
         let saved = SavedPartitions::new(base.path(), &vec![label("*i*")]).unwrap();
