@@ -502,7 +502,12 @@ impl SavedPartitions {
             .chain_err(|| format!("opening {} for reading", disk.display()))?;
         let gpt = match GPT::find_from(&mut f) {
             Ok(gpt) => gpt,
-            Err(_) => return Ok(result),
+            // no GPT on this disk, so no partitions to save
+            Err(gptman::Error::InvalidSignature) => return Ok(result),
+            Err(e) => {
+                return Err(e)
+                    .chain_err(|| format!("reading partition table of {}", disk.display()))?
+            }
         };
 
         for (i, p) in gpt.iter() {
