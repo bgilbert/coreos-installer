@@ -978,15 +978,15 @@ mod tests {
             (
                 vec![Index(index(5), None)],
                 vec![
-                    make_part(1, "boot", 1, 384),
-                    make_part(2, "EFI-SYSTEM", 384, 512),
-                    make_part(4, "root", 1024, 2200),
                     make_part(5, "five", 4096, 5120),
                     make_part(7, "seven", 5120, 6144),
                     make_part(8, "eight", 6144, 7168),
                     make_part(9, "nine", 7168, 8192),
                 ],
                 vec![
+                    make_part(1, "boot", 1, 384),
+                    make_part(2, "EFI-SYSTEM", 384, 512),
+                    make_part(4, "root", 1024, 2200),
                     make_part(5, "five", 4096, 5120),
                     make_part(7, "seven", 5120, 6144),
                     make_part(8, "eight", 6144, 7168),
@@ -997,14 +997,14 @@ mod tests {
             (
                 vec![label("*i*")],
                 vec![
-                    make_part(1, "boot", 1, 384),
-                    make_part(2, "EFI-SYSTEM", 384, 512),
-                    make_part(4, "root", 1024, 2200),
                     make_part(5, "five", 4096, 5120),
                     make_part(8, "eight", 6144, 7168),
                     make_part(9, "nine", 7168, 8192),
                 ],
                 vec![
+                    make_part(1, "boot", 1, 384),
+                    make_part(2, "EFI-SYSTEM", 384, 512),
+                    make_part(4, "root", 1024, 2200),
                     make_part(5, "five", 4096, 5120),
                     make_part(8, "eight", 6144, 7168),
                     make_part(9, "nine", 7168, 8192),
@@ -1017,17 +1017,24 @@ mod tests {
                     Index(index(7), index(7)),
                     Index(index(11), None),
                 ],
+                vec![make_part(7, "seven", 5120, 6144)],
                 vec![
                     make_part(1, "boot", 1, 384),
                     make_part(2, "EFI-SYSTEM", 384, 512),
                     make_part(4, "root", 1024, 2200),
                     make_part(7, "seven", 5120, 6144),
                 ],
-                vec![make_part(7, "seven", 5120, 6144)],
             ),
             // Partition renumbering
             (
                 vec![Index(index(4), None)],
+                vec![
+                    make_part(4, "four", 3072, 4096),
+                    make_part(5, "five", 4096, 5120),
+                    make_part(7, "seven", 5120, 6144),
+                    make_part(8, "eight", 6144, 7168),
+                    make_part(9, "nine", 7168, 8192),
+                ],
                 vec![
                     make_part(1, "boot", 1, 384),
                     make_part(2, "EFI-SYSTEM", 384, 512),
@@ -1038,39 +1045,33 @@ mod tests {
                     make_part(8, "eight", 6144, 7168),
                     make_part(9, "nine", 7168, 8192),
                 ],
-                vec![
-                    make_part(4, "four", 3072, 4096),
-                    make_part(5, "five", 4096, 5120),
-                    make_part(7, "seven", 5120, 6144),
-                    make_part(8, "eight", 6144, 7168),
-                    make_part(9, "nine", 7168, 8192),
-                ],
             ),
             // No saved partitions
             (
                 vec![Index(index(15), None)],
+                vec![],
                 vec![
                     make_part(1, "boot", 1, 384),
                     make_part(2, "EFI-SYSTEM", 384, 512),
                     make_part(4, "root", 1024, 2200),
                 ],
-                vec![],
             ),
             // No filters
             (
                 vec![],
+                vec![],
                 vec![
                     make_part(1, "boot", 1, 384),
                     make_part(2, "EFI-SYSTEM", 384, 512),
                     make_part(4, "root", 1024, 2200),
                 ],
-                vec![],
             ),
         ];
 
         let base = make_disk(512, &base_parts);
-        for (testnum, (filter, expected_image, expected_blank)) in tests.iter().enumerate() {
-            // try writing to image disk
+        for (testnum, (filter, expected_blank, expected_image)) in tests.iter().enumerate() {
+            // perform writes in the same order as install()
+            // first, try writing to image disk
             let saved = SavedPartitions::new(base.path(), filter).unwrap();
             let mut disk = make_disk(512, &image_parts);
             saved.write(disk.path()).unwrap();
@@ -1092,7 +1093,7 @@ mod tests {
                 testnum
             );
 
-            // try writing to blank disk
+            // then, try writing to blank disk
             let mut disk = make_unformatted_disk();
             saved.write(disk.path()).unwrap();
             if !expected_blank.is_empty() {
