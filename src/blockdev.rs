@@ -541,6 +541,9 @@ impl SavedPartitions {
         if self.partitions.is_empty() {
             return Ok(());
         }
+        let sector_size = self
+            .sector_size
+            .expect("have partitions but no sector size");
 
         // get or create GPT
         let disk = disk.as_ref();
@@ -555,12 +558,12 @@ impl SavedPartitions {
             .is_block_device()
         {
             let disk_sector_size = get_sector_size(&f)?.get() as u64;
-            if disk_sector_size != self.sector_size.expect("sector size unset") {
+            if disk_sector_size != sector_size {
                 bail!(
                     "sector size {} of disk {} doesn't match sector size {} of saved GPT",
                     disk_sector_size,
                     disk.display(),
-                    self.sector_size.unwrap()
+                    sector_size
                 );
             }
         }
@@ -577,22 +580,18 @@ impl SavedPartitions {
                         eprintln!("Couldn't read partition table: {}.  Recreating.", e);
                     }
                 }
-                GPT::new_from(
-                    &mut f,
-                    self.sector_size.expect("sector size unset"),
-                    *Uuid::new_v4().as_bytes(),
-                )
-                .chain_err(|| format!("creating new partition table for {}", disk.display()))?
+                GPT::new_from(&mut f, sector_size, *Uuid::new_v4().as_bytes())
+                    .chain_err(|| format!("creating new partition table for {}", disk.display()))?
             }
         };
-        if gpt.sector_size != self.sector_size.expect("sector size unset") {
+        if gpt.sector_size != sector_size {
             // install will fail on an image that doesn't match the disk,
             // so this shouldn't happen
             bail!(
                 "sector size {} of GPT on {} doesn't match sector size {} of saved GPT",
                 gpt.sector_size,
                 disk.display(),
-                self.sector_size.unwrap()
+                sector_size
             );
         }
 
