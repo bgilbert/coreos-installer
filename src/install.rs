@@ -151,6 +151,9 @@ fn write_disk(
         Path::new(&config.device),
         image_copy,
         true,
+        saved
+            .get_offset()?
+            .map(|(offset, desc)| (offset, format!("collision with {}", desc))),
         Some(sector_size),
     )?;
 

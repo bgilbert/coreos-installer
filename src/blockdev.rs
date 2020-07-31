@@ -622,6 +622,20 @@ impl SavedPartitions {
             .chain_err(|| format!("writing updated GPT to {}", disk.display()))?;
         Ok(())
     }
+
+    /// Get the byte offset of the first byte not to be overwritten, if any,
+    /// plus a description of the partition at that offset.
+    pub fn get_offset(&self) -> Result<Option<(u64, String)>> {
+        match self.partitions.iter().min_by_key(|(_, p)| p.starting_lba) {
+            None => Ok(None),
+            Some((i, p)) => Ok(Some((
+                p.starting_lba
+                    .checked_mul(self.sector_size.expect("missing sector size"))
+                    .chain_err(|| "overflow calculating partition start")?,
+                format!("partition {} (\"{}\")", i, p.partition_name.as_str()),
+            ))),
+        }
+    }
 }
 
 fn read_sysfs_dev_block_value_u64(maj: u64, min: u64, field: &str) -> Result<u64> {
@@ -1037,6 +1051,21 @@ mod tests {
             saved.write(disk.path()).unwrap();
             let result = GPT::find_from(&mut disk).unwrap();
             assert_partitions_eq(expected_image, &result, &format!("test {} image", testnum));
+            assert_eq!(
+                saved.get_offset().unwrap(),
+                match expected_blank.is_empty() {
+                    true => None,
+                    false => {
+                        let (i, p) = &expected_blank[0];
+                        Some((
+                            p.starting_lba * 512,
+                            format!("partition {} (\"{}\")", i, p.partition_name.as_str()),
+                        ))
+                    }
+                },
+                "test {}",
+                testnum
+            );
 
             // try writing to blank disk
             let mut disk = Builder::new()
