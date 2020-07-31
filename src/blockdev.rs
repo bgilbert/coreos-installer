@@ -947,6 +947,12 @@ mod tests {
                     make_part(8, "eight", 6144, 7168),
                     make_part(9, "nine", 7168, 8192),
                 ],
+                vec![
+                    make_part(5, "five", 4096, 5120),
+                    make_part(7, "seven", 5120, 6144),
+                    make_part(8, "eight", 6144, 7168),
+                    make_part(9, "nine", 7168, 8192),
+                ],
             ),
             // Glob
             (
@@ -955,6 +961,11 @@ mod tests {
                     make_part(1, "boot", 1, 384),
                     make_part(2, "EFI-SYSTEM", 384, 512),
                     make_part(4, "root", 1024, 2200),
+                    make_part(5, "five", 4096, 5120),
+                    make_part(8, "eight", 6144, 7168),
+                    make_part(9, "nine", 7168, 8192),
+                ],
+                vec![
                     make_part(5, "five", 4096, 5120),
                     make_part(8, "eight", 6144, 7168),
                     make_part(9, "nine", 7168, 8192),
@@ -973,6 +984,7 @@ mod tests {
                     make_part(4, "root", 1024, 2200),
                     make_part(7, "seven", 5120, 6144),
                 ],
+                vec![make_part(7, "seven", 5120, 6144)],
             ),
             // Partition renumbering
             (
@@ -987,17 +999,56 @@ mod tests {
                     make_part(8, "eight", 6144, 7168),
                     make_part(9, "nine", 7168, 8192),
                 ],
+                vec![
+                    make_part(4, "four", 3072, 4096),
+                    make_part(5, "five", 4096, 5120),
+                    make_part(7, "seven", 5120, 6144),
+                    make_part(8, "eight", 6144, 7168),
+                    make_part(9, "nine", 7168, 8192),
+                ],
+            ),
+            // No saved partitions
+            (
+                vec![Index(index(15), None)],
+                vec![
+                    make_part(1, "boot", 1, 384),
+                    make_part(2, "EFI-SYSTEM", 384, 512),
+                    make_part(4, "root", 1024, 2200),
+                ],
+                vec![],
+            ),
+            // No filters
+            (
+                vec![],
+                vec![
+                    make_part(1, "boot", 1, 384),
+                    make_part(2, "EFI-SYSTEM", 384, 512),
+                    make_part(4, "root", 1024, 2200),
+                ],
+                vec![],
             ),
         ];
 
         let base = make_disk(&base_parts);
-        for (testnum, (filter, expected)) in tests.iter().enumerate() {
+        for (testnum, (filter, expected_image, expected_blank)) in tests.iter().enumerate() {
+            // try writing to image disk
             let saved = SavedPartitions::new(base.path(), filter).unwrap();
             let mut disk = make_disk(&image_parts);
             saved.write(disk.path()).unwrap();
-
             let result = GPT::find_from(&mut disk).unwrap();
-            assert_partitions_eq(expected, &result, &format!("test {}", testnum));
+            assert_partitions_eq(expected_image, &result, &format!("test {} image", testnum));
+
+            // try writing to blank disk
+            let mut disk = Builder::new()
+                .prefix("coreos-installer-blockdev-")
+                .tempfile()
+                .unwrap();
+            disk.as_file().set_len(10 * 1024 * 1024 * 1024).unwrap();
+            saved.write(disk.path()).unwrap();
+            if !expected_blank.is_empty() {
+                let result = GPT::find_from(&mut disk).unwrap();
+                assert_partitions_eq(expected_blank, &result, &format!("test {} blank", testnum));
+            }
         }
     }
 
