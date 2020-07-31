@@ -53,6 +53,7 @@ pub fn install(config: &InstallConfig) -> Result<()> {
 
     // open output; ensure it's a block device and we have exclusive access
     let mut dest = OpenOptions::new()
+        .read(true)
         .write(true)
         .open(&config.device)
         .chain_err(|| format!("opening {}", &config.device))?;
@@ -428,9 +429,41 @@ fn clear_partition_table(dest: &mut File, table: &mut dyn PartTable) -> Result<(
     eprintln!("Clearing partition table");
     dest.seek(SeekFrom::Start(0))
         .chain_err(|| "seeking to start of disk")?;
-    let zeroes: [u8; 1024 * 1024] = [0; 1024 * 1024];
+    let zeroes = [0u8; 1024 * 1024];
     dest.write_all(&zeroes)
-        .chain_err(|| "clearing partition table")?;
+        .chain_err(|| "clearing primary partition table")?;
+
+    // Now the backup GPT, which is in the last LBA.  If there is one, we
+    // should clear it, since it might have stale partition info.
+    // Constraints:
+    //   - Never overwrite partition contents.
+    //   - If we're on a GPT platform, we have the right to overwrite at
+    //     least the last 4 KiB of disk.  On 4Kn drives, that's the backup
+    //     GPT.  On 512-byte drives, there is at least 16 KiB of
+    //     non-partitionable space before the backup GPT, so we're still safe.
+    //     This is true even if we're writing to a legacy MBR disk, because
+    //     by doing so, the user already gave the OS permission to write the
+    //     backup GPT on first boot.
+    //   - We can't assume that the backup GPT corresponds to the disk
+    //     sector size because of possible user error.  We probably can't
+    //     even assume there aren't backup GPTs for both sector sizes.
+    //   - If we're not on a GPT system (s390x DASD), we can't overwrite the
+    //     end of the disk.
+    // We could probably get away with clearing the last 4 KiB if !DASD, but
+    // be a bit more conservative: probe for _any_ GPT signature and, if
+    // found, clear the last 4 KiB.
+    let mut buf = [0u8; 4096];
+    dest.seek(SeekFrom::End(-(buf.len() as i64)))
+        .chain_err(|| "seeking to end of disk")?;
+    dest.read_exact(&mut buf)
+        .chain_err(|| "reading end of disk")?;
+    if detect_formatted_sector_size_end(&buf).is_some() {
+        dest.seek(SeekFrom::End(-(buf.len() as i64)))
+            .chain_err(|| "seeking to end of disk")?;
+        dest.write_all(&zeroes[..buf.len()])
+            .chain_err(|| "clearing backup partition table")?;
+    }
+
     dest.flush()
         .chain_err(|| "flushing partition table to disk")?;
     dest.sync_all()

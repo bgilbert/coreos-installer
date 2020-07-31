@@ -25,7 +25,7 @@ use std::result;
 use std::time::{Duration, Instant};
 use xz2::read::XzDecoder;
 
-use crate::blockdev::detect_formatted_sector_size;
+use crate::blockdev::detect_formatted_sector_size_start;
 use crate::cmdline::*;
 use crate::errors::*;
 use crate::io::*;
@@ -225,7 +225,7 @@ where
     // Were we asked to check sector size?
     if let Some(expected) = expected_sector_size {
         // Can we derive one from source data?
-        if let Some(actual) = detect_formatted_sector_size(&first_mb) {
+        if let Some(actual) = detect_formatted_sector_size_start(&first_mb) {
             // Do they match?
             if expected != actual {
                 bail!(
